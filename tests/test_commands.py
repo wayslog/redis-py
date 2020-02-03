@@ -70,50 +70,6 @@ class TestRedisCommands(object):
         assert r.bitcount('a', -2, -1) == 2
         assert r.bitcount('a', 1, 1) == 1
 
-    @skip_if_server_version_lt('2.6.0')
-    def test_bitop_not_empty_string(self, r):
-        r['a'] = ''
-        r.bitop('not', 'r', 'a')
-        assert r.get('r') is None
-
-    @skip_if_server_version_lt('2.6.0')
-    def test_bitop_not(self, r):
-        test_str = b'\xAA\x00\xFF\x55'
-        correct = ~0xAA00FF55 & 0xFFFFFFFF
-        r['a'] = test_str
-        r.bitop('not', 'r', 'a')
-        assert int(binascii.hexlify(r['r']), 16) == correct
-
-    @skip_if_server_version_lt('2.6.0')
-    def test_bitop_not_in_place(self, r):
-        test_str = b'\xAA\x00\xFF\x55'
-        correct = ~0xAA00FF55 & 0xFFFFFFFF
-        r['a'] = test_str
-        r.bitop('not', 'a', 'a')
-        assert int(binascii.hexlify(r['a']), 16) == correct
-
-    @skip_if_server_version_lt('2.6.0')
-    def test_bitop_single_string(self, r):
-        test_str = b'\x01\x02\xFF'
-        r['a'] = test_str
-        r.bitop('and', 'res1', 'a')
-        r.bitop('or', 'res2', 'a')
-        r.bitop('xor', 'res3', 'a')
-        assert r['res1'] == test_str
-        assert r['res2'] == test_str
-        assert r['res3'] == test_str
-
-    @skip_if_server_version_lt('2.6.0')
-    def test_bitop_string_operands(self, r):
-        r['a'] = b'\x01\x02\xFF\xFF'
-        r['b'] = b'\x01\x02\xFF'
-        r.bitop('and', 'res1', 'a', 'b')
-        r.bitop('or', 'res2', 'a', 'b')
-        r.bitop('xor', 'res3', 'a', 'b')
-        assert int(binascii.hexlify(r['res1']), 16) == 0x0102FF00
-        assert int(binascii.hexlify(r['res2']), 16) == 0x0102FFFF
-        assert int(binascii.hexlify(r['res3']), 16) == 0x000000FF
-
     @skip_if_server_version_lt('2.8.7')
     def test_bitpos(self, r):
         key = 'key:bitpos'
@@ -308,15 +264,6 @@ class TestRedisCommands(object):
         assert r.incrbyfloat('a', 1.1) == 2.1
         assert float(r['a']) == float(2.1)
 
-    def test_keys(self, r):
-        assert r.keys() == []
-        keys_with_underscores = {b'test_a', b'test_b'}
-        keys = keys_with_underscores.union({b'testc'})
-        for key in keys:
-            r[key] = 1
-        assert set(r.keys(pattern='test_*')) == keys_with_underscores
-        assert set(r.keys(pattern='test*')) == keys
-
     def test_mget(self, r):
         assert r.mget([]) == []
         assert r.mget(['a', 'b']) == [None, None]
@@ -330,15 +277,6 @@ class TestRedisCommands(object):
         assert r.mset(d)
         for k, v in iteritems(d):
             assert r[k] == v
-
-    def test_msetnx(self, r):
-        d = {'a': b'1', 'b': b'2', 'c': b'3'}
-        assert r.msetnx(d)
-        d2 = {'a': b'x', 'd': b'4'}
-        assert not r.msetnx(d2)
-        for k, v in iteritems(d):
-            assert r[k] == v
-        assert r.get('d') is None
 
     @skip_if_server_version_lt('2.6.0')
     def test_pexpire(self, r):
@@ -395,25 +333,6 @@ class TestRedisCommands(object):
     def test_pttl_no_key(self, r):
         "PTTL on servers 2.8 and after return -2 when the key doesn't exist"
         assert r.pttl('a') == -2
-
-    def test_randomkey(self, r):
-        assert r.randomkey() is None
-        for key in ('a', 'b', 'c'):
-            r[key] = 1
-        assert r.randomkey() in (b'a', b'b', b'c')
-
-    def test_rename(self, r):
-        r['a'] = '1'
-        assert r.rename('a', 'b')
-        assert r.get('a') is None
-        assert r['b'] == b'1'
-
-    def test_renamenx(self, r):
-        r['a'] = '1'
-        r['b'] = '2'
-        assert not r.renamenx('a', 'b')
-        assert r['a'] == b'1'
-        assert r['b'] == b'2'
 
     @skip_if_server_version_lt('2.6.0')
     def test_set_nx(self, r):
@@ -516,41 +435,6 @@ class TestRedisCommands(object):
         assert r.type('a') == b'zset'
 
     # LIST COMMANDS
-    def test_blpop(self, r):
-        r.rpush('a', '1', '2')
-        r.rpush('b', '3', '4')
-        assert r.blpop(['b', 'a'], timeout=1) == (b'b', b'3')
-        assert r.blpop(['b', 'a'], timeout=1) == (b'b', b'4')
-        assert r.blpop(['b', 'a'], timeout=1) == (b'a', b'1')
-        assert r.blpop(['b', 'a'], timeout=1) == (b'a', b'2')
-        assert r.blpop(['b', 'a'], timeout=1) is None
-        r.rpush('c', '1')
-        assert r.blpop('c', timeout=1) == (b'c', b'1')
-
-    def test_brpop(self, r):
-        r.rpush('a', '1', '2')
-        r.rpush('b', '3', '4')
-        assert r.brpop(['b', 'a'], timeout=1) == (b'b', b'4')
-        assert r.brpop(['b', 'a'], timeout=1) == (b'b', b'3')
-        assert r.brpop(['b', 'a'], timeout=1) == (b'a', b'2')
-        assert r.brpop(['b', 'a'], timeout=1) == (b'a', b'1')
-        assert r.brpop(['b', 'a'], timeout=1) is None
-        r.rpush('c', '1')
-        assert r.brpop('c', timeout=1) == (b'c', b'1')
-
-    def test_brpoplpush(self, r):
-        r.rpush('a', '1', '2')
-        r.rpush('b', '3', '4')
-        assert r.brpoplpush('a', 'b') == b'2'
-        assert r.brpoplpush('a', 'b') == b'1'
-        assert r.brpoplpush('a', 'b', timeout=1) is None
-        assert r.lrange('a', 0, -1) == []
-        assert r.lrange('b', 0, -1) == [b'1', b'2', b'3', b'4']
-
-    def test_brpoplpush_empty_string(self, r):
-        r.rpush('a', '')
-        assert r.brpoplpush('a', 'b') == b''
-
     def test_lindex(self, r):
         r.rpush('a', '1', '2', '3')
         assert r.lindex('a', '0') == b'1'
@@ -624,13 +508,6 @@ class TestRedisCommands(object):
         assert r.rpop('a') == b'2'
         assert r.rpop('a') == b'1'
         assert r.rpop('a') is None
-
-    def test_rpoplpush(self, r):
-        r.rpush('a', 'a1', 'a2', 'a3')
-        r.rpush('b', 'b1', 'b2', 'b3')
-        assert r.rpoplpush('a', 'b') == b'a3'
-        assert r.lrange('a', 0, -1) == [b'a1', b'a2']
-        assert r.lrange('b', 0, -1) == [b'a3', b'b1', b'b2', b'b3']
 
     def test_rpush(self, r):
         assert r.rpush('a', '1') == 1
@@ -706,34 +583,6 @@ class TestRedisCommands(object):
         r.sadd('a', '1', '2', '3')
         assert r.scard('a') == 3
 
-    def test_sdiff(self, r):
-        r.sadd('a', '1', '2', '3')
-        assert r.sdiff('a', 'b') == {b'1', b'2', b'3'}
-        r.sadd('b', '2', '3')
-        assert r.sdiff('a', 'b') == {b'1'}
-
-    def test_sdiffstore(self, r):
-        r.sadd('a', '1', '2', '3')
-        assert r.sdiffstore('c', 'a', 'b') == 3
-        assert r.smembers('c') == {b'1', b'2', b'3'}
-        r.sadd('b', '2', '3')
-        assert r.sdiffstore('c', 'a', 'b') == 1
-        assert r.smembers('c') == {b'1'}
-
-    def test_sinter(self, r):
-        r.sadd('a', '1', '2', '3')
-        assert r.sinter('a', 'b') == set()
-        r.sadd('b', '2', '3')
-        assert r.sinter('a', 'b') == {b'2', b'3'}
-
-    def test_sinterstore(self, r):
-        r.sadd('a', '1', '2', '3')
-        assert r.sinterstore('c', 'a', 'b') == 0
-        assert r.smembers('c') == set()
-        r.sadd('b', '2', '3')
-        assert r.sinterstore('c', 'a', 'b') == 2
-        assert r.smembers('c') == {b'2', b'3'}
-
     def test_sismember(self, r):
         r.sadd('a', '1', '2', '3')
         assert r.sismember('a', '1')
@@ -744,13 +593,6 @@ class TestRedisCommands(object):
     def test_smembers(self, r):
         r.sadd('a', '1', '2', '3')
         assert r.smembers('a') == {b'1', b'2', b'3'}
-
-    def test_smove(self, r):
-        r.sadd('a', 'a1', 'a2')
-        r.sadd('b', 'b1', 'b2')
-        assert r.smove('a', 'b', 'a1')
-        assert r.smembers('a') == {b'a2'}
-        assert r.smembers('b') == {b'b1', b'b2', b'a1'}
 
     def test_spop(self, r):
         s = [b'1', b'2', b'3']
@@ -788,17 +630,6 @@ class TestRedisCommands(object):
         assert r.srem('a', '5') == 0
         assert r.srem('a', '2', '4') == 2
         assert r.smembers('a') == {b'1', b'3'}
-
-    def test_sunion(self, r):
-        r.sadd('a', '1', '2')
-        r.sadd('b', '2', '3')
-        assert r.sunion('a', 'b') == {b'1', b'2', b'3'}
-
-    def test_sunionstore(self, r):
-        r.sadd('a', '1', '2')
-        r.sadd('b', '2', '3')
-        assert r.sunionstore('c', 'a', 'b') == 3
-        assert r.smembers('c') == {b'1', b'2', b'3'}
 
     # SORTED SET COMMANDS
     def test_zadd(self, r):
@@ -871,38 +702,6 @@ class TestRedisCommands(object):
         r.zadd('a', {'a': 0, 'b': 0, 'c': 0, 'd': 0, 'e': 0, 'f': 0, 'g': 0})
         assert r.zlexcount('a', '-', '+') == 7
         assert r.zlexcount('a', '[b', '[f') == 5
-
-    def test_zinterstore_sum(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 1, 'a3': 1})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 2})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zinterstore('d', ['a', 'b', 'c']) == 2
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a3', 8), (b'a1', 9)]
-
-    def test_zinterstore_max(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 1, 'a3': 1})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 2})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zinterstore('d', ['a', 'b', 'c'], aggregate='MAX') == 2
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a3', 5), (b'a1', 6)]
-
-    def test_zinterstore_min(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 2, 'a3': 3})
-        r.zadd('b', {'a1': 2, 'a2': 3, 'a3': 5})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zinterstore('d', ['a', 'b', 'c'], aggregate='MIN') == 2
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a1', 1), (b'a3', 3)]
-
-    def test_zinterstore_with_weight(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 1, 'a3': 1})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 2})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zinterstore('d', {'a': 1, 'b': 2, 'c': 3}) == 2
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a3', 20), (b'a1', 23)]
 
     @skip_if_server_version_lt('4.9.0')
     def test_zpopmax(self, r):
@@ -1084,38 +883,6 @@ class TestRedisCommands(object):
         assert r.zscore('a', 'a2') == 2.0
         assert r.zscore('a', 'a4') is None
 
-    def test_zunionstore_sum(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 1, 'a3': 1})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 2})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zunionstore('d', ['a', 'b', 'c']) == 4
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a2', 3), (b'a4', 4), (b'a3', 8), (b'a1', 9)]
-
-    def test_zunionstore_max(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 1, 'a3': 1})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 2})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zunionstore('d', ['a', 'b', 'c'], aggregate='MAX') == 4
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a2', 2), (b'a4', 4), (b'a3', 5), (b'a1', 6)]
-
-    def test_zunionstore_min(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 2, 'a3': 3})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 4})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zunionstore('d', ['a', 'b', 'c'], aggregate='MIN') == 4
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a1', 1), (b'a2', 2), (b'a3', 3), (b'a4', 4)]
-
-    def test_zunionstore_with_weight(self, r):
-        r.zadd('a', {'a1': 1, 'a2': 1, 'a3': 1})
-        r.zadd('b', {'a1': 2, 'a2': 2, 'a3': 2})
-        r.zadd('c', {'a1': 6, 'a3': 5, 'a4': 4})
-        assert r.zunionstore('d', {'a': 1, 'b': 2, 'c': 3}) == 4
-        assert r.zrange('d', 0, -1, withscores=True) == \
-            [(b'a2', 5), (b'a4', 12), (b'a3', 20), (b'a1', 23)]
-
     # HYPERLOGLOG TESTS
     @skip_if_server_version_lt('2.8.9')
     def test_pfadd(self, r):
@@ -1132,20 +899,7 @@ class TestRedisCommands(object):
         members_b = {b'2', b'3', b'4'}
         r.pfadd('b', *members_b)
         assert r.pfcount('b') == len(members_b)
-        assert r.pfcount('a', 'b') == len(members_b.union(members))
-
-    @skip_if_server_version_lt('2.8.9')
-    def test_pfmerge(self, r):
-        mema = {b'1', b'2', b'3'}
-        memb = {b'2', b'3', b'4'}
-        memc = {b'5', b'6', b'7'}
-        r.pfadd('a', *mema)
-        r.pfadd('b', *memb)
-        r.pfadd('c', *memc)
-        r.pfmerge('d', 'c', 'a')
-        assert r.pfcount('d') == 6
-        r.pfmerge('d', 'b')
-        assert r.pfcount('d') == 7
+        # assert r.pfcount('a', 'b') == len(members_b.union(members))
 
     # HASH COMMANDS
     def test_hget_and_hset(self, r):
@@ -1242,36 +996,6 @@ class TestRedisCommands(object):
         r.rpush('a', '3', '2', '1', '4')
         assert r.sort('a', start=1, num=2) == [b'2', b'3']
 
-    def test_sort_by(self, r):
-        r['score:1'] = 8
-        r['score:2'] = 3
-        r['score:3'] = 5
-        r.rpush('a', '3', '2', '1')
-        assert r.sort('a', by='score:*') == [b'2', b'3', b'1']
-
-    def test_sort_get(self, r):
-        r['user:1'] = 'u1'
-        r['user:2'] = 'u2'
-        r['user:3'] = 'u3'
-        r.rpush('a', '2', '3', '1')
-        assert r.sort('a', get='user:*') == [b'u1', b'u2', b'u3']
-
-    def test_sort_get_multi(self, r):
-        r['user:1'] = 'u1'
-        r['user:2'] = 'u2'
-        r['user:3'] = 'u3'
-        r.rpush('a', '2', '3', '1')
-        assert r.sort('a', get=('user:*', '#')) == \
-            [b'u1', b'1', b'u2', b'2', b'u3', b'3']
-
-    def test_sort_get_groups_two(self, r):
-        r['user:1'] = 'u1'
-        r['user:2'] = 'u2'
-        r['user:3'] = 'u3'
-        r.rpush('a', '2', '3', '1')
-        assert r.sort('a', get=('user:*', '#'), groups=True) == \
-            [(b'u1', b'1'), (b'u2', b'2'), (b'u3', b'3')]
-
     def test_sort_groups_string_get(self, r):
         r['user:1'] = 'u1'
         r['user:2'] = 'u2'
@@ -1296,21 +1020,6 @@ class TestRedisCommands(object):
         with pytest.raises(exceptions.DataError):
             r.sort('a', groups=True)
 
-    def test_sort_groups_three_gets(self, r):
-        r['user:1'] = 'u1'
-        r['user:2'] = 'u2'
-        r['user:3'] = 'u3'
-        r['door:1'] = 'd1'
-        r['door:2'] = 'd2'
-        r['door:3'] = 'd3'
-        r.rpush('a', '2', '3', '1')
-        assert r.sort('a', get=('user:*', 'door:*', '#'), groups=True) == \
-            [
-                (b'u1', b'd1', b'1'),
-                (b'u2', b'd2', b'2'),
-                (b'u3', b'd3', b'3')
-        ]
-
     def test_sort_desc(self, r):
         r.rpush('a', '2', '3', '1')
         assert r.sort('a', desc=True) == [b'3', b'2', b'1']
@@ -1319,38 +1028,6 @@ class TestRedisCommands(object):
         r.rpush('a', 'e', 'c', 'b', 'd', 'a')
         assert r.sort('a', alpha=True) == \
             [b'a', b'b', b'c', b'd', b'e']
-
-    def test_sort_store(self, r):
-        r.rpush('a', '2', '3', '1')
-        assert r.sort('a', store='sorted_values') == 3
-        assert r.lrange('sorted_values', 0, -1) == [b'1', b'2', b'3']
-
-    def test_sort_all_options(self, r):
-        r['user:1:username'] = 'zeus'
-        r['user:2:username'] = 'titan'
-        r['user:3:username'] = 'hermes'
-        r['user:4:username'] = 'hercules'
-        r['user:5:username'] = 'apollo'
-        r['user:6:username'] = 'athena'
-        r['user:7:username'] = 'hades'
-        r['user:8:username'] = 'dionysus'
-
-        r['user:1:favorite_drink'] = 'yuengling'
-        r['user:2:favorite_drink'] = 'rum'
-        r['user:3:favorite_drink'] = 'vodka'
-        r['user:4:favorite_drink'] = 'milk'
-        r['user:5:favorite_drink'] = 'pinot noir'
-        r['user:6:favorite_drink'] = 'water'
-        r['user:7:favorite_drink'] = 'gin'
-        r['user:8:favorite_drink'] = 'apple juice'
-
-        r.rpush('gods', '5', '8', '3', '1', '2', '7', '6', '4')
-        num = r.sort('gods', start=2, num=4, by='user:*:username',
-                     get='user:*:favorite_drink', desc=True, alpha=True,
-                     store='sorted')
-        assert num == 4
-        assert r.lrange('sorted', 0, 10) == \
-            [b'vodka', b'milk', b'gin', b'apple juice']
 
     def test_sort_issue_924(self, r):
         # Tests for issue https://github.com/andymccurdy/redis-py/issues/924
@@ -1406,10 +1083,6 @@ class TestRedisCommands(object):
     def test_cluster_slaves(self, mock_cluster_resp_slaves):
         assert isinstance(mock_cluster_resp_slaves.cluster(
             'slaves', 'nodeid'), dict)
-
-    @skip_if_server_version_lt('3.0.0')
-    def test_readwrite(self, r):
-        assert r.readwrite()
 
     @skip_if_server_version_lt('3.0.0')
     def test_readonly_invalid_cluster_state(self, r):
@@ -1565,15 +1238,6 @@ class TestRedisCommands(object):
             [b'place1', b'place2']
         assert r.georadius('barcelona', 2.191, 41.433, 3000, sort='DESC') ==\
             [b'place2', b'place1']
-
-    @skip_if_server_version_lt('3.2.0')
-    def test_georadius_store(self, r):
-        values = (2.1909389952632, 41.433791470673, 'place1') +\
-                 (2.1873744593677, 41.406342043777, 'place2')
-
-        r.geoadd('barcelona', *values)
-        r.georadius('barcelona', 2.191, 41.433, 1000, store='places_barcelona')
-        assert r.zrange('places_barcelona', 0, -1) == [b'place1']
 
     @skip_unless_arch_bits(64)
     @skip_if_server_version_lt('3.2.0')

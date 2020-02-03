@@ -10,10 +10,6 @@ value = tonumber(value)
 return value * ARGV[1]"""
 
 class TestScripting(object):
-    @pytest.fixture(autouse=True)
-    def reset_scripts(self, r):
-        r.script_flush()
-
     def test_eval(self, r):
         r.set('a', 2)
         # 2 * 3 == 6

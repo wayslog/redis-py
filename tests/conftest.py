@@ -1,13 +1,15 @@
 import pytest
 import redis
+import toml
 from mock import Mock
 
 from distutils.version import StrictVersion
 
 
 REDIS_INFO = {}
-default_redis_url = "redis://localhost:6379/9"
+BACKEND_INSTANCES = {}
 
+default_redis_url = "redis://localhost:6379"
 
 def pytest_addoption(parser):
     parser.addoption('--redis-url', default=default_redis_url,
@@ -18,13 +20,38 @@ def pytest_addoption(parser):
 
 def _get_info(redis_url):
     client = redis.Redis.from_url(redis_url)
-    info = client.info()
     client.connection_pool.disconnect()
     return {
         "redis_version": "4.0.9",
         "arch_bits": "64",
     }
 
+
+def load_aster_standalone_instances(cluster):
+    return [ ":".join([x.split(":")[0], x.split(":")[1]]) for x in cluster['servers'] ]
+
+
+def load_aster_cluster_instances(cluster):
+    for server in cluster['servers']:
+        client = redis.Redis.from_url("redis://%s" % (server,))
+        response = client.execute_command("CLUSTER SLOTS")
+        client.connection_pool.disconnect()
+        instance_lists = [ "%s:%s" % (x[2][0].decode("utf-8"), x[2][1]) for x in response]
+        return instance_lists
+
+def load_aster_instances():
+    t = toml.load("default.toml")
+    all_instances = []
+
+    for cluster in t["clusters"]:
+        if cluster['cache_type'] == 'redis':
+            all_instances += load_aster_standalone_instances(cluster)
+        elif cluster['cache_type'] == 'redis_cluster':
+            all_instances += load_aster_cluster_instances(cluster)
+    
+    for server in all_instances:
+        client = redis.Redis.from_url("redis://%s" % (server,))
+        BACKEND_INSTANCES[server] = client
 
 def pytest_sessionstart(session):
     redis_url = session.config.getoption("--redis-url")
@@ -33,6 +60,7 @@ def pytest_sessionstart(session):
     arch_bits = info["arch_bits"]
     REDIS_INFO["version"] = version
     REDIS_INFO["arch_bits"] = arch_bits
+    load_aster_instances()
 
 
 def skip_if_server_version_lt(min_version):
@@ -61,16 +89,16 @@ def _get_client(cls, request, single_connection_client=True, **kwargs):
     client = cls.from_url(redis_url, **kwargs)
     if single_connection_client:
         client = client.client()
+
     if request:
         def teardown():
-            try:
-                client.flushdb()
-            except redis.ConnectionError:
-                # handle cases where a test disconnected a client
-                # just manually retry the flushdb
-                client.flushdb()
-            client.close()
-            client.connection_pool.disconnect()
+            for (_server, inst) in BACKEND_INSTANCES.items():
+                try:
+                    inst.flushdb()
+                except redis.ConnectionError:
+                    # handle cases where a test disconnected a client
+                    # just manually retry the flushdb
+                    inst.flushdb()
         request.addfinalizer(teardown)
     return client
 
